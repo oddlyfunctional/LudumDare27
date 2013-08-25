@@ -4,15 +4,18 @@
   window.addEventListener("load", function() {
     var Q;
     Q = window.Q = Quintus().include("Sprites, Scenes, Input, 2D, Anim, Touch, UI").setup({
-      maximize: true
+      width: 768,
+      height: 480
     }).controls().touch();
+    Q.FloorHeight = 450;
     Q.Sprite.extend("Player", {
       init: function(p) {
         this._super(p, {
-          sheet: "player",
-          x: 410,
-          y: 90
+          sheet: "player_front",
+          x: 100,
+          y: Q.FloorHeight
         });
+        this.p.y -= this.p.h / 2;
         this.speed = 200;
         this.add("2d");
         Q.input.on("fire", this, "action");
@@ -36,8 +39,8 @@
         this.enemies || (this.enemies = []);
         return this.enemies.push(enemy);
       },
-      withinRange: function(object) {
-        return Math.abs(this.p.x - object.p.x) <= object.range;
+      withinRange: function(object, range) {
+        return Math.abs(this.p.x - object.p.x) <= range;
       },
       checkSpotLights: function() {
         var spotLight, _i, _len, _ref, _results;
@@ -46,7 +49,7 @@
         _results = [];
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
           spotLight = _ref[_i];
-          if (this.withinRange(spotLight)) {
+          if (this.withinRange(spotLight, spotLight.range)) {
             _results.push(this.visible = true);
           } else {
             _results.push(void 0);
@@ -63,8 +66,12 @@
           enemy = _ref[_i];
           enemyX = enemy.p.x;
           turnedToPlayer = (enemy.direction() === "left" && x < enemyX) || (enemy.direction() === "right" && x > enemyX);
-          if (this.visible && turnedToPlayer && this.withinRange(enemy)) {
-            _results.push(this.busted());
+          if (turnedToPlayer) {
+            if (this.visible && this.withinRange(enemy, enemy.range) || this.withinRange(enemy, enemy.flashlightRange)) {
+              _results.push(this.busted());
+            } else {
+              _results.push(void 0);
+            }
           } else {
             _results.push(void 0);
           }
@@ -82,7 +89,6 @@
           this.p.vx = 0;
         }
         this.checkSpotLights();
-        console.log("Visible: " + this.visible);
         return this.checkEnemies();
       },
       action: function() {
@@ -109,12 +115,14 @@
       init: function(options) {
         this._super(options, {
           sheet: "enemy",
+          y: Q.FloorHeight,
           vx: -100
         });
         this.left_limit = options["left_limit"];
         this.right_limit = options["right_limit"];
         this.speed = options["speed"] || 100;
         this.range = options["range"] || 200;
+        this.flashlightRange = options["flashlightRange"] || 100;
         options["player"].addEnemy(this);
         return this.add("2d");
       },
@@ -138,23 +146,48 @@
         return this.p.vx = new_vx;
       }
     });
+    Q.Sprite.extend("LevelCollider", {
+      init: function(options) {
+        this._super(options);
+        this.leftWall = {
+          p: {
+            w: 10,
+            h: 768,
+            x: 0,
+            y: 0
+          }
+        };
+        return this.rightWall = {
+          p: {
+            w: 10,
+            h: 768,
+            x: 1280,
+            y: 0
+          }
+        };
+      },
+      collide: function(obj) {
+        return Q.collision(obj, this.leftWall) || Q.collision(obj, this.rightWall);
+      }
+    });
     Q.scene("level1", function(stage) {
-      var level_json, player;
-      stage.insert(new Q.Repeater({
-        asset: "background-wall.png",
-        speedX: 0.5,
-        speedY: 0.5
-      }));
-      level_json = [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]];
-      stage.collisionLayer(new Q.TileLayer({
-        dataAsset: level_json,
-        sheet: "tiles"
-      }));
+      var player;
+      window.bg = new Q.Sprite({
+        asset: "corredor.png",
+        x: 800 / 2,
+        y: 480 / 2,
+        type: 0
+      });
+      console.log(bg);
+      stage.insert(bg);
+      stage.collisionLayer(new Q.LevelCollider());
       player = stage.insert(new Q.Player());
-      stage.add("viewport").follow(player);
+      stage.add("viewport").follow(player, {
+        y: false,
+        x: true
+      });
       stage.insert(new Q.Enemy({
         x: 700,
-        y: 0,
         player: player,
         left_limit: 500,
         right_limit: 750,
@@ -197,10 +230,13 @@
       });
       return container.fit(20);
     });
-    return Q.load("sprites.png, tiles.png, background-wall.png, sprites.json", function() {
-      Q.sheet("tiles", "tiles.png", {
-        tilew: 32,
-        tileh: 32
+    return Q.load("sprites.png, player_front.png, tiles.png, corredor.png, sprites.json", function() {
+      Q.gravityY = 0;
+      Q.sheet("player_front", "player_front.png", {
+        tilew: 35,
+        tileh: 118,
+        sx: 0,
+        sy: 0
       });
       Q.compileSheets("sprites.png", "sprites.json");
       return Q.stageScene("level1");

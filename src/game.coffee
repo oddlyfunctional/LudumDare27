@@ -20,7 +20,9 @@ window.addEventListener "load", ->
   # Maximize this game to whatever the size of the browser is
   
   # And turn on default input controls and touch input (for UI)
-  Q = window.Q = Quintus().include("Sprites, Scenes, Input, 2D, Anim, Touch, UI").setup(maximize: true).controls().touch()
+  Q = window.Q = Quintus().include("Sprites, Scenes, Input, 2D, Anim, Touch, UI").setup(width: 768, height: 480).controls().touch()
+
+  Q.FloorHeight = 450
 
   # ## Player Sprite
   # The very basic player sprite, this is just a normal sprite
@@ -32,10 +34,11 @@ window.addEventListener "load", ->
       
       # You can call the parent's constructor with this._super(..)
       @_super p,
-        sheet: "player" # Setting a sprite sheet sets sprite width and height
-        x: 410 # You can also set additional properties that can
-        y: 90 # be overridden on object creation
+        sheet: "player_front" # Setting a sprite sheet sets sprite width and height
+        x: 100 # You can also set additional properties that can
+        y: Q.FloorHeight# be overridden on object creation
 
+      @p.y -= @p.h / 2
       @speed = 200
 
       # Add in pre-made components to get up and running quickly
@@ -64,13 +67,13 @@ window.addEventListener "load", ->
       @enemies ||= []
       @enemies.push(enemy)
 
-    withinRange: (object)->
-      Math.abs(@p.x - object.p.x) <= object.range
+    withinRange: (object, range)->
+      Math.abs(@p.x - object.p.x) <= range
 
     checkSpotLights: ->
       @visible = false
       for spotLight in @spotLights
-        if @withinRange(spotLight)
+        if @withinRange(spotLight, spotLight.range)
           @visible = true
 
     checkEnemies: ->
@@ -79,8 +82,9 @@ window.addEventListener "load", ->
         enemyX = enemy.p.x
         turnedToPlayer = (enemy.direction() == "left" && x < enemyX) ||
         (enemy.direction() == "right" && x > enemyX)
-        if @visible && turnedToPlayer && @withinRange(enemy)
-          @busted()
+        if turnedToPlayer
+          if @visible && @withinRange(enemy, enemy.range) || @withinRange(enemy, enemy.flashlightRange)
+            @busted()
 
     step: (dt) ->
       if Q.inputs["left"]
@@ -93,7 +97,6 @@ window.addEventListener "load", ->
         @p.vx = 0
 
       @checkSpotLights()
-      console.log("Visible: " + @visible)
       @checkEnemies()
 
     action: ->
@@ -120,11 +123,13 @@ window.addEventListener "load", ->
     init: (options) ->
       @_super options,
         sheet: "enemy"
+        y: Q.FloorHeight
         vx: -100
       @left_limit = options["left_limit"]
       @right_limit = options["right_limit"]
       @speed = options["speed"] || 100
       @range = options["range"] || 200
+      @flashlightRange = options["flashlightRange"] || 100
       options["player"].addEnemy(this)
       
       # Enemies use the Bounce AI to change direction 
@@ -145,51 +150,65 @@ window.addEventListener "load", ->
       if (@direction() == "right" && new_x >= @right_limit)
         new_vx = -@speed
       @p.vx = new_vx
-  
+
+  Q.Sprite.extend "LevelCollider",
+    init: (options) ->
+      @_super options
+      @leftWall = {
+        p:
+          w: 10
+          h: 768
+          x: 0
+          y: 0
+      }
+      @rightWall =  {
+        p:
+          w: 10
+          h: 768
+          x: 1280
+          y: 0
+      }
+
+    collide: (obj) ->
+      Q.collision(obj, @leftWall) || Q.collision(obj, @rightWall)
+      
+
   # ## Level1 scene
   # Create a new scene called level 1
   Q.scene "level1", (stage) ->
     
     # Add in a repeater for a little parallax action
-    stage.insert new Q.Repeater(
-      asset: "background-wall.png"
-      speedX: 0.5
-      speedY: 0.5
-    )
-    
-    level_json = [
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      [ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-    ]
+    #stage.insert new Q.Repeater(
+    #  asset: "corredor.png"
+    #  repeatY: false
+    #  repeatX: true
+    #  y: 0
+    #)
+    window.bg = new Q.Sprite {
+      asset: "corredor.png"
+      x: 800 / 2
+      y: 480 / 2
+      type: 0
+    }
+    console.log bg
+    stage.insert bg
     # Add in a tile layer, and make it the collision layer
-    stage.collisionLayer new Q.TileLayer(
-      dataAsset: level_json,
-      sheet: "tiles"
-    )
+    stage.collisionLayer new Q.LevelCollider()
+    #new Q.TileLayer(
+    #  dataAsset: level_json,
+    #  sheet: "tiles"
+    #)
     
     # Create the player and add them to the stage
     player = stage.insert(new Q.Player())
     
     # Give the stage a moveable viewport and tell it
     # to follow the player.
-    stage.add("viewport").follow player
+    stage.add("viewport").follow player, y: false, x: true
     
     # Add in a couple of enemies
     stage.insert new Q.Enemy(
       x: 700
-      y: 0
       player: player
       left_limit: 500
       right_limit: 750
@@ -248,12 +267,15 @@ window.addEventListener "load", ->
   # Q.load can be called at any time to load additional assets
   # assets that are already loaded will be skipped
   # The callback will be triggered when everything is loaded
-  Q.load "sprites.png, tiles.png, background-wall.png, sprites.json", ->
+  Q.load "sprites.png, player_front.png, tiles.png, corredor.png, sprites.json", ->
     
-    # Sprites sheets can be created manually
-    Q.sheet "tiles", "tiles.png",
-      tilew: 32
-      tileh: 32
+    Q.gravityY = 0
+
+    Q.sheet "player_front", "player_front.png",
+      tilew: 35
+      tileh: 118
+      sx: 0
+      sy: 0
 
     # Or from a .json asset that defines sprite locations
     Q.compileSheets "sprites.png", "sprites.json"
