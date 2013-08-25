@@ -25,9 +25,6 @@
           }
         });
       },
-      isVisible: function() {
-        return true;
-      },
       busted: function() {
         return console.log("busted!");
       },
@@ -66,7 +63,7 @@
           enemy = _ref[_i];
           enemyX = enemy.p.x;
           turnedToPlayer = (enemy.direction() === "left" && x < enemyX) || (enemy.direction() === "right" && x > enemyX);
-          if (turnedToPlayer && this.withinRange(enemy)) {
+          if (this.visible && turnedToPlayer && this.withinRange(enemy)) {
             _results.push(this.busted());
           } else {
             _results.push(void 0);
@@ -85,6 +82,7 @@
           this.p.vx = 0;
         }
         this.checkSpotLights();
+        console.log("Visible: " + this.visible);
         return this.checkEnemies();
       },
       action: function() {

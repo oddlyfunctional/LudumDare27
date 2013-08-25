@@ -53,7 +53,6 @@ window.addEventListener "load", ->
           Q.stageScene "endGame", 1,
             label: "You Won!"
           @destroy()
-    isVisible: -> true
 
     busted: -> console.log("busted!")
 
@@ -80,9 +79,8 @@ window.addEventListener "load", ->
         enemyX = enemy.p.x
         turnedToPlayer = (enemy.direction() == "left" && x < enemyX) ||
         (enemy.direction() == "right" && x > enemyX)
-        if turnedToPlayer && @withinRange(enemy)
+        if @visible && turnedToPlayer && @withinRange(enemy)
           @busted()
-
 
     step: (dt) ->
       if Q.inputs["left"]
@@ -95,6 +93,7 @@ window.addEventListener "load", ->
         @p.vx = 0
 
       @checkSpotLights()
+      console.log("Visible: " + @visible)
       @checkEnemies()
 
     action: ->
