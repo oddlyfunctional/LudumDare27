@@ -57,6 +57,33 @@ window.addEventListener "load", ->
 
     busted: -> console.log("busted!")
 
+    addSpotLight: (spotLight) ->
+      @spotLights ||= []
+      @spotLights.push(spotLight)
+
+    addEnemy: (enemy) ->
+      @enemies ||= []
+      @enemies.push(enemy)
+
+    withinRange: (object)->
+      Math.abs(@p.x - object.p.x) <= object.range
+
+    checkSpotLights: ->
+      @visible = false
+      for spotLight in @spotLights
+        if @withinRange(spotLight)
+          @visible = true
+
+    checkEnemies: ->
+      x = @p.x
+      for enemy in @enemies
+        enemyX = enemy.p.x
+        turnedToPlayer = (enemy.direction() == "left" && x < enemyX) ||
+        (enemy.direction() == "right" && x > enemyX)
+        if turnedToPlayer && @withinRange(enemy)
+          @busted()
+
+
     step: (dt) ->
       if Q.inputs["left"]
         @p.vx = -@speed
@@ -66,6 +93,9 @@ window.addEventListener "load", ->
         @p.direction = "right"
       else
         @p.vx = 0
+
+      @checkSpotLights()
+      @checkEnemies()
 
     action: ->
       console.log("action!")
@@ -78,12 +108,13 @@ window.addEventListener "load", ->
       @_super p,
         sheet: "tower"
 
-  Q.Sprite.extend "LightSpot",
+  Q.Sprite.extend "SpotLight",
     init: (options) ->
-      @_super options
-      @player = options["player"]
+      @_super options,
+        sheet: "tower"
+      @range = options["range"] || 100
+      options["player"].addSpotLight(this)
 
-  
   # ## Enemy Sprite
   # Create the Enemy class to add in some baddies
   Q.Sprite.extend "Enemy",
@@ -91,12 +122,11 @@ window.addEventListener "load", ->
       @_super options,
         sheet: "enemy"
         vx: -100
-      @player = options["player"]
       @left_limit = options["left_limit"]
       @right_limit = options["right_limit"]
       @speed = options["speed"] || 100
       @range = options["range"] || 200
-      console.log(@speed)
+      options["player"].addEnemy(this)
       
       # Enemies use the Bounce AI to change direction 
       # whenver they run into something.
@@ -108,15 +138,6 @@ window.addEventListener "load", ->
       else
         "right"
 
-    canSeePlayer: ->
-      x = @p.x
-      playerX = @player.p.x
-      turnedToPlayer = (@direction() == "left" && playerX < x) ||
-        (@direction() == "right" && playerX > x)
-      withinRange = Math.abs(playerX - x) <= @range
-
-      turnedToPlayer && withinRange
-
     step: (dt) ->
       new_x = @p.x + @p.vx * dt
       new_vx = if @p.vx == 0 then @speed else @p.vx
@@ -125,11 +146,6 @@ window.addEventListener "load", ->
       if (@direction() == "right" && new_x >= @right_limit)
         new_vx = -@speed
       @p.vx = new_vx
-
-      if @player.isVisible() && @canSeePlayer()
-        @player.busted()
-
-
   
   # ## Level1 scene
   # Create a new scene called level 1
@@ -178,12 +194,21 @@ window.addEventListener "load", ->
       player: player
       left_limit: 500
       right_limit: 750
+      range: 200
     )
-    
-    # Finally add in the tower goal
-    stage.insert new Q.Tower(
-      x: 180
+
+    stage.insert new Q.SpotLight(
+      x: 400
       y: 50
+      player: player
+      range: 100
+    )
+ 
+    stage.insert new Q.SpotLight(
+      x: 0
+      y: 50
+      player: player
+      range: 100
     )
 
   

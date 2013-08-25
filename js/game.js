@@ -31,16 +31,61 @@
       busted: function() {
         return console.log("busted!");
       },
+      addSpotLight: function(spotLight) {
+        this.spotLights || (this.spotLights = []);
+        return this.spotLights.push(spotLight);
+      },
+      addEnemy: function(enemy) {
+        this.enemies || (this.enemies = []);
+        return this.enemies.push(enemy);
+      },
+      withinRange: function(object) {
+        return Math.abs(this.p.x - object.p.x) <= object.range;
+      },
+      checkSpotLights: function() {
+        var spotLight, _i, _len, _ref, _results;
+        this.visible = false;
+        _ref = this.spotLights;
+        _results = [];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          spotLight = _ref[_i];
+          if (this.withinRange(spotLight)) {
+            _results.push(this.visible = true);
+          } else {
+            _results.push(void 0);
+          }
+        }
+        return _results;
+      },
+      checkEnemies: function() {
+        var enemy, enemyX, turnedToPlayer, x, _i, _len, _ref, _results;
+        x = this.p.x;
+        _ref = this.enemies;
+        _results = [];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          enemy = _ref[_i];
+          enemyX = enemy.p.x;
+          turnedToPlayer = (enemy.direction() === "left" && x < enemyX) || (enemy.direction() === "right" && x > enemyX);
+          if (turnedToPlayer && this.withinRange(enemy)) {
+            _results.push(this.busted());
+          } else {
+            _results.push(void 0);
+          }
+        }
+        return _results;
+      },
       step: function(dt) {
         if (Q.inputs["left"]) {
           this.p.vx = -this.speed;
-          return this.p.direction = "left";
+          this.p.direction = "left";
         } else if (Q.inputs["right"]) {
           this.p.vx = this.speed;
-          return this.p.direction = "right";
+          this.p.direction = "right";
         } else {
-          return this.p.vx = 0;
+          this.p.vx = 0;
         }
+        this.checkSpotLights();
+        return this.checkEnemies();
       },
       action: function() {
         return console.log("action!");
@@ -53,10 +98,13 @@
         });
       }
     });
-    Q.Sprite.extend("LightSpot", {
+    Q.Sprite.extend("SpotLight", {
       init: function(options) {
-        this._super(options);
-        return this.player = options["player"];
+        this._super(options, {
+          sheet: "tower"
+        });
+        this.range = options["range"] || 100;
+        return options["player"].addSpotLight(this);
       }
     });
     Q.Sprite.extend("Enemy", {
@@ -65,12 +113,11 @@
           sheet: "enemy",
           vx: -100
         });
-        this.player = options["player"];
         this.left_limit = options["left_limit"];
         this.right_limit = options["right_limit"];
         this.speed = options["speed"] || 100;
         this.range = options["range"] || 200;
-        console.log(this.speed);
+        options["player"].addEnemy(this);
         return this.add("2d");
       },
       direction: function() {
@@ -79,14 +126,6 @@
         } else {
           return "right";
         }
-      },
-      canSeePlayer: function() {
-        var playerX, turnedToPlayer, withinRange, x;
-        x = this.p.x;
-        playerX = this.player.p.x;
-        turnedToPlayer = (this.direction() === "left" && playerX < x) || (this.direction() === "right" && playerX > x);
-        withinRange = Math.abs(playerX - x) <= this.range;
-        return turnedToPlayer && withinRange;
       },
       step: function(dt) {
         var new_vx, new_x;
@@ -98,10 +137,7 @@
         if (this.direction() === "right" && new_x >= this.right_limit) {
           new_vx = -this.speed;
         }
-        this.p.vx = new_vx;
-        if (this.player.isVisible() && this.canSeePlayer()) {
-          return this.player.busted();
-        }
+        return this.p.vx = new_vx;
       }
     });
     Q.scene("level1", function(stage) {
@@ -123,11 +159,20 @@
         y: 0,
         player: player,
         left_limit: 500,
-        right_limit: 750
+        right_limit: 750,
+        range: 200
       }));
-      return stage.insert(new Q.Tower({
-        x: 180,
-        y: 50
+      stage.insert(new Q.SpotLight({
+        x: 400,
+        y: 50,
+        player: player,
+        range: 100
+      }));
+      return stage.insert(new Q.SpotLight({
+        x: 0,
+        y: 50,
+        player: player,
+        range: 100
       }));
     });
     Q.scene("endGame", function(stage) {
