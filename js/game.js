@@ -7,17 +7,69 @@
       width: 768,
       height: 480
     }).controls().touch();
+    Q.input.mouseControls();
+    Q.input.keyboardControls();
+    Q.el.style.cursor = 'auto';
     Q.FloorHeight = 450;
+    Q.pointInside = function(point, o) {
+      var c, ox, oy;
+      c = o.c || o.p;
+      ox = c.x - c.cx;
+      oy = c.y - c.cy;
+      return !((oy + c.h <= point.y) || (oy >= point.y) || (ox + c.w <= point.x) || (ox >= point.x));
+    };
+    Q.component("extendedMouseEvents", {
+      mouseInside: function() {
+        var mouseX, mouseY;
+        mouseX = Q.inputs["mouseX"];
+        mouseY = Q.inputs["mouseY"];
+        return Q.pointInside({
+          x: mouseX,
+          y: mouseY
+        }, this.entity);
+      },
+      added: function() {
+        var mouseClick, mouseEnter, mouseLeave,
+          _this = this;
+        mouseClick = function() {
+          if (_this.mouseInside()) {
+            return _this.entity.trigger("click");
+          }
+        };
+        Q.el.addEventListener.apply(Q.el, ["mousedown", mouseClick, false]);
+        mouseEnter = function() {
+          if (!_this.inside && _this.mouseInside()) {
+            _this.inside = true;
+            return _this.entity.trigger("mouseEnter");
+          }
+        };
+        Q.el.addEventListener.apply(Q.el, ["mousemove", mouseEnter, false]);
+        mouseLeave = function() {
+          if (_this.inside && !_this.mouseInside()) {
+            _this.inside = false;
+            return _this.entity.trigger("mouseLeave");
+          }
+        };
+        return Q.el.addEventListener.apply(Q.el, ["mousemove", mouseLeave, false]);
+      }
+    });
     Q.Sprite.extend("Player", {
+      click: function() {
+        return console.log("click");
+      },
+      hover: function() {
+        return console.log("hover");
+      },
       init: function(p) {
         this._super(p, {
-          sheet: "player_front",
+          sheet: "player",
+          sprite: "player",
           x: 100,
           y: Q.FloorHeight
         });
         this.p.y -= this.p.h / 2;
         this.speed = 200;
-        this.add("2d");
+        this.add("2d, animation");
         Q.input.on("fire", this, "action");
         return this.on("hit.sprite", function(collision) {
           if (collision.obj.isA("Tower")) {
@@ -91,6 +143,11 @@
         this.checkSpotLights();
         return this.checkEnemies();
       },
+      draw: function(ctx) {
+        this._super(ctx);
+        ctx.fillStyle = "rgb(0,255,255)";
+        return ctx.fillRect(-this.p.cx, 0, this.p.w, 10);
+      },
       action: function() {
         return console.log("action!");
       }
@@ -104,33 +161,58 @@
     });
     Q.Sprite.extend("SpotLight", {
       init: function(options) {
-        this._super(options, {
-          sheet: "tower"
-        });
+        this._super(options);
         this.range = options["range"] || 100;
         return options["player"].addSpotLight(this);
+      },
+      draw: function(ctx) {
+        this._super(ctx);
+        if (Q.DEBUG) {
+          ctx.fillStyle = "yellow";
+          return ctx.fillRect(-this.range, 0, this.range * 2, 10);
+        }
       }
     });
     Q.Sprite.extend("Enemy", {
       init: function(options) {
         this._super(options, {
-          sheet: "enemy",
+          sprite: "enemy_1",
+          sheet: "enemy_1",
           y: Q.FloorHeight,
           vx: -100
         });
+        this.p.y -= this.p.h / 2;
         this.left_limit = options["left_limit"];
         this.right_limit = options["right_limit"];
         this.speed = options["speed"] || 100;
         this.range = options["range"] || 200;
         this.flashlightRange = options["flashlightRange"] || 100;
         options["player"].addEnemy(this);
-        return this.add("2d");
+        this.add("2d, animation");
+        return this.play("walking");
       },
       direction: function() {
         if (this.p.vx < 0) {
           return "left";
         } else {
           return "right";
+        }
+      },
+      draw: function(ctx) {
+        this._super(ctx);
+        if (Q.DEBUG) {
+          ctx.fillStyle = "blue";
+          if (this.direction() === "left") {
+            ctx.fillRect(-this.range, 0, this.range, 10);
+          } else {
+            ctx.fillRect(0, 0, this.range, 10);
+          }
+          ctx.fillStyle = "red";
+          if (this.direction() === "left") {
+            return ctx.fillRect(-this.flashlightRange, 0, this.flashlightRange, 10);
+          } else {
+            return ctx.fillRect(0, 0, this.flashlightRange, 10);
+          }
         }
       },
       step: function(dt) {
@@ -144,6 +226,31 @@
           new_vx = -this.speed;
         }
         return this.p.vx = new_vx;
+      }
+    });
+    Q.Sprite.extend("Door", {
+      init: function(options) {
+        this._super(options, {
+          y: Q.FloorHeight - 79,
+          h: 123,
+          w: 95,
+          type: 0
+        });
+        this.on("phonecall", "ring");
+        this.on("click", "teste");
+        this.add("extendedMouseEvents");
+        console.log('door');
+        return console.log(this.p);
+      },
+      teste: function() {
+        return console.log("TESTE");
+      },
+      draw: function(ctx) {
+        this._super(ctx);
+        if (Q.DEBUG) {
+          ctx.fillStyle = "green";
+          return ctx.fillRect(-this.p.cx, -this.p.cy, this.p.w, this.p.h);
+        }
       }
     });
     Q.Sprite.extend("LevelCollider", {
@@ -171,7 +278,7 @@
       }
     });
     Q.scene("level1", function(stage) {
-      var player;
+      var i, spotLightDistance, spotLightOffset, _i, _results;
       window.bg = new Q.Sprite({
         asset: "corredor.png",
         x: 800 / 2,
@@ -181,7 +288,11 @@
       console.log(bg);
       stage.insert(bg);
       stage.collisionLayer(new Q.LevelCollider());
-      player = stage.insert(new Q.Player());
+      stage.insert(new Q.Door({
+        x: 207
+      }));
+      window.player = stage.insert(new Q.Player());
+      player.play("walking_right");
       stage.add("viewport").follow(player, {
         y: false,
         x: true
@@ -193,18 +304,18 @@
         right_limit: 750,
         range: 200
       }));
-      stage.insert(new Q.SpotLight({
-        x: 400,
-        y: 50,
-        player: player,
-        range: 100
-      }));
-      return stage.insert(new Q.SpotLight({
-        x: 0,
-        y: 50,
-        player: player,
-        range: 100
-      }));
+      spotLightOffset = 372;
+      spotLightDistance = 302;
+      _results = [];
+      for (i = _i = 0; _i <= 2; i = ++_i) {
+        _results.push(stage.insert(new Q.SpotLight({
+          x: spotLightOffset + spotLightDistance * i,
+          y: 430,
+          player: player,
+          range: 82
+        })));
+      }
+      return _results;
     });
     Q.scene("endGame", function(stage) {
       var button, container, label;
@@ -230,15 +341,40 @@
       });
       return container.fit(20);
     });
-    return Q.load("sprites.png, player_front.png, tiles.png, corredor.png, sprites.json", function() {
+    return Q.load("sprites.png, enemy_1.png, player_front.png, player.png, tiles.png, corredor.png, sprites.json", function() {
+      Q.DEBUG = true;
+      Q.debug = true;
       Q.gravityY = 0;
-      Q.sheet("player_front", "player_front.png", {
-        tilew: 35,
-        tileh: 118,
-        sx: 0,
+      Q.input.keyboardControls({
+        65: "left",
+        68: "right"
+      });
+      Q.sheet("player", "player.png", {
+        tilew: 95,
+        tileh: 112,
+        sx: 1,
         sy: 0
       });
-      Q.compileSheets("sprites.png", "sprites.json");
+      Q.sheet("enemy_1", "enemy_1.png", {
+        tilew: 70,
+        tileh: 128
+      });
+      Q.animations("player", {
+        walking_left: {
+          frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+          rate: 1 / 2
+        },
+        walking_right: {
+          frames: [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+          rate: 1 / 2
+        }
+      });
+      Q.animations("enemy_1", {
+        walking: {
+          frames: [0, 1, 2],
+          rate: 1 / 3
+        }
+      });
       return Q.stageScene("level1");
     });
   });
