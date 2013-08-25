@@ -53,6 +53,9 @@ window.addEventListener "load", ->
           Q.stageScene "endGame", 1,
             label: "You Won!"
           @destroy()
+    isVisible: -> true
+
+    busted: -> console.log("busted!")
 
     step: (dt) ->
       if Q.inputs["left"]
@@ -75,37 +78,56 @@ window.addEventListener "load", ->
       @_super p,
         sheet: "tower"
 
+  Q.Sprite.extend "LightSpot",
+    init: (options) ->
+      @_super options
+      @player = options["player"]
 
   
   # ## Enemy Sprite
   # Create the Enemy class to add in some baddies
   Q.Sprite.extend "Enemy",
-    init: (p) ->
-      @_super p,
+    init: (options) ->
+      @_super options,
         sheet: "enemy"
-        vx: 100
-
+        vx: -100
+      @player = options["player"]
+      @left_limit = options["left_limit"]
+      @right_limit = options["right_limit"]
+      @speed = options["speed"] || 100
+      @range = options["range"] || 200
+      console.log(@speed)
       
       # Enemies use the Bounce AI to change direction 
       # whenver they run into something.
-      @add "2d, aiBounce"
-      
-      # Listen for a sprite collision, if it's the player,
-      # end the game unless the enemy is hit on top
-      @on "bump.left,bump.right,bump.bottom", (collision) ->
-        if collision.obj.isA("Player")
-          Q.stageScene "endGame", 1,
-            label: "You Died"
+      @add "2d"
 
-          collision.obj.destroy()
+    direction: ->
+      if @p.vx < 0
+        "left"
+      else
+        "right"
 
-      
-      # If the enemy gets hit on the top, destroy it
-      # and give the user a "hop"
-      @on "bump.top", (collision) ->
-        if collision.obj.isA("Player")
-          @destroy()
-          collision.obj.p.vy = -300
+    canSeePlayer: ->
+      x = @p.x
+      playerX = @player.p.x
+      turnedToPlayer = (@direction() == "left" && playerX < x) ||
+        (@direction() == "right" && playerX > x)
+      withinRange = Math.abs(playerX - x) <= @range
+
+      turnedToPlayer && withinRange
+
+    step: (dt) ->
+      new_x = @p.x + @p.vx * dt
+      new_vx = if @p.vx == 0 then @speed else @p.vx
+      if (@direction() == "left" && new_x <= @left_limit)
+        new_vx = @speed
+      if (@direction() == "right" && new_x >= @right_limit)
+        new_vx = -@speed
+      @p.vx = new_vx
+
+      if @player.isVisible() && @canSeePlayer()
+        @player.busted()
 
 
   
@@ -153,10 +175,9 @@ window.addEventListener "load", ->
     stage.insert new Q.Enemy(
       x: 700
       y: 0
-    )
-    stage.insert new Q.Enemy(
-      x: 800
-      y: 0
+      player: player
+      left_limit: 500
+      right_limit: 750
     )
     
     # Finally add in the tower goal

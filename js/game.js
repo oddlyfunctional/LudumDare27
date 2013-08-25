@@ -25,6 +25,12 @@
           }
         });
       },
+      isVisible: function() {
+        return true;
+      },
+      busted: function() {
+        return console.log("busted!");
+      },
       step: function(dt) {
         if (Q.inputs["left"]) {
           this.p.vx = -this.speed;
@@ -47,27 +53,55 @@
         });
       }
     });
+    Q.Sprite.extend("LightSpot", {
+      init: function(options) {
+        this._super(options);
+        return this.player = options["player"];
+      }
+    });
     Q.Sprite.extend("Enemy", {
-      init: function(p) {
-        this._super(p, {
+      init: function(options) {
+        this._super(options, {
           sheet: "enemy",
-          vx: 100
+          vx: -100
         });
-        this.add("2d, aiBounce");
-        this.on("bump.left,bump.right,bump.bottom", function(collision) {
-          if (collision.obj.isA("Player")) {
-            Q.stageScene("endGame", 1, {
-              label: "You Died"
-            });
-            return collision.obj.destroy();
-          }
-        });
-        return this.on("bump.top", function(collision) {
-          if (collision.obj.isA("Player")) {
-            this.destroy();
-            return collision.obj.p.vy = -300;
-          }
-        });
+        this.player = options["player"];
+        this.left_limit = options["left_limit"];
+        this.right_limit = options["right_limit"];
+        this.speed = options["speed"] || 100;
+        this.range = options["range"] || 200;
+        console.log(this.speed);
+        return this.add("2d");
+      },
+      direction: function() {
+        if (this.p.vx < 0) {
+          return "left";
+        } else {
+          return "right";
+        }
+      },
+      canSeePlayer: function() {
+        var playerX, turnedToPlayer, withinRange, x;
+        x = this.p.x;
+        playerX = this.player.p.x;
+        turnedToPlayer = (this.direction() === "left" && playerX < x) || (this.direction() === "right" && playerX > x);
+        withinRange = Math.abs(playerX - x) <= this.range;
+        return turnedToPlayer && withinRange;
+      },
+      step: function(dt) {
+        var new_vx, new_x;
+        new_x = this.p.x + this.p.vx * dt;
+        new_vx = this.p.vx === 0 ? this.speed : this.p.vx;
+        if (this.direction() === "left" && new_x <= this.left_limit) {
+          new_vx = this.speed;
+        }
+        if (this.direction() === "right" && new_x >= this.right_limit) {
+          new_vx = -this.speed;
+        }
+        this.p.vx = new_vx;
+        if (this.player.isVisible() && this.canSeePlayer()) {
+          return this.player.busted();
+        }
       }
     });
     Q.scene("level1", function(stage) {
@@ -86,11 +120,10 @@
       stage.add("viewport").follow(player);
       stage.insert(new Q.Enemy({
         x: 700,
-        y: 0
-      }));
-      stage.insert(new Q.Enemy({
-        x: 800,
-        y: 0
+        y: 0,
+        player: player,
+        left_limit: 500,
+        right_limit: 750
       }));
       return stage.insert(new Q.Tower({
         x: 180,
