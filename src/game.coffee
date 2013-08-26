@@ -29,12 +29,14 @@ window.addEventListener "load", ->
   Q.FloorHeight = 450
   Q.LevelWidth = 3840
 
-
   Q.Vector =
     subtract: (v1, v2) ->
       { x: v1.x - v2.x, y: v1.y - v2.y}
     distance: (v1, v2) ->
       Math.sqrt(Math.pow(v1.x - v2.x, 2) + Math.pow(v1.y - v2.y, 2))
+
+  Q.lerp = (start, end, percent) ->
+    (start + percent*(end - start))
       
   Q.pointInside = (point, o) ->
     c = o.c || o.p
@@ -81,8 +83,6 @@ window.addEventListener "load", ->
   # using the player sprite sheet with default controls added to it.
   Q.Sprite.extend "Player",
     
-    click: -> console.log("click")
-    hover: -> console.log("hover")
     # the init constructor is called on creation
     init: (p) ->
 
@@ -121,7 +121,9 @@ window.addEventListener "load", ->
     turnLeft: -> @play "left"
     turnRight: -> @play "right"
 
-    busted: -> console.log("busted!")
+    busted: ->
+      Q.clearStages()
+      Q.stageScene "credits"
 
     addSpotLight: (spotLight) ->
       @spotLights ||= []
@@ -227,8 +229,6 @@ window.addEventListener "load", ->
   Q.Sprite.extend "Enemy",
     init: (options) ->
       @_super options,
-        sprite: "enemy_1"
-        sheet: "enemy_1"
         y: Q.FloorHeight
         vx: -100
         type: Q.SPRITE_NONE
@@ -320,11 +320,57 @@ window.addEventListener "load", ->
         h: 123
         w: 95
         type: 0
-      @on "phonecall", "ring"
-      @on "click", "teste"
       @add "extendedMouseEvents"
 
-    teste: -> console.log("TESTE")
+  Q.Sprite.extend "FadingSprite",
+    BEFORE: 0
+    FADE_IN: 1
+    SHOWING: 2
+    FADE_OUT: 3
+    HIDDEN: 4
+
+    init: (options) ->
+      @_super options
+      @timer = 0
+      @state = @BEFORE
+      [@tBefore, @tFadeIn, @tShowing, @tFadeOut, @tHidden] = @p.timedEvents
+      @p.alpha = 0
+      @add "tween"
+ 
+    draw: (ctx) ->
+      ctx.globalAlpha = @p.alpha
+      @_super(ctx)
+
+    step: (dt) ->
+      @timer += dt
+      switch @state
+        when @BEFORE
+          if @timer >= @tBefore
+            @state = @FADE_IN
+            @animate { alpha: 1}, @tShowing - @tFadeIn
+        when @FADE_IN
+          if @timer >= @tFadeIn
+            @state = @SHOWING
+        when @SHOWING
+          if @timer >= @tShowing
+            @animate { alpha: 0}, @tHidden - @tFadeOut
+            @state = @FADE_OUT
+           
+  Q.Sprite.extend "Text",
+    init: (options) ->
+      @_super options,
+        y: 20
+      @enabled = false
+
+    disable: ->
+      @enabled = false
+    enable: ->
+      @enabled = true
+    draw: (ctx) ->
+      if @enabled
+        ctx.font = "20px Courier New, Courier, monospace"
+        ctx.fillStyle = "white"
+        ctx.fillText @p.text, Q.stage().viewport.x + @p.x, @p.y
 
   Q.Sprite.extend "LevelCollider",
     init: (options) ->
@@ -346,7 +392,16 @@ window.addEventListener "load", ->
 
     collide: (obj) ->
       Q.collision(obj, @leftWall) || Q.collision(obj, @rightWall)
-      
+
+  Q.Sprite.extend "CollideTrigger",
+    init: (options) ->
+      @_super options,
+        type: Q.SPRITE_NONE
+    step: (dt) ->
+      player = Q.state.player
+      if Q.overlap(this, player)
+        @p.handler()
+        @destroy()
 
   # ## Level1 scene
   # Create a new scene called level 1
@@ -366,6 +421,73 @@ window.addEventListener "load", ->
       type: 0
     }
     stage.insert bg
+
+    texts = []
+
+    texts.push stage.insert new Q.Text # 0
+      text: "WTF happened?"
+      x: 150
+    texts.push stage.insert new Q.Text # 1
+      text: "Suddenly all went black and when lights"
+      x: 80
+    texts.push stage.insert new Q.Text # 2
+      text: "are back on, there's a corpse on the floor!"
+      x: 80
+    texts.push stage.insert new Q.Text # 3
+      text: "I didn't do anything! Did I?..."
+      x: 95
+    texts.push stage.insert new Q.Text # 4
+      text: "I need to find the security tape and"
+      x: 90
+    texts.push stage.insert new Q.Text # 5
+      text: "find out what happened in those 10 seconds!"
+      x: 80
+
+    enableText = (scheduleTime, text) ->
+      stage.insert new Q.TimedEvent(triggerAt: scheduleTime, handler: -> text.enable())
+
+    disableText = (scheduleTime, text) ->
+      stage.insert new Q.TimedEvent(triggerAt: scheduleTime, handler: -> text.disable())
+
+    time = 1
+    textCount = 0
+
+    scheduleText = (interval)->
+      enableText(time, texts[textCount])
+      time += interval
+      disableText(time, texts[textCount])
+      textCount++
+
+    #scheduleText(3) # 0
+    #scheduleText(3) # 1
+    #scheduleText(4) # 2
+    #scheduleText(4) # 3
+    #time += 2
+    #scheduleText(4) # 4
+    #scheduleText(4) # 5
+
+
+    stage.insert new Q.CollideTrigger
+      asset: "key.png"
+      x: 3200
+      y: 400
+      handler: ->
+        victoryText00 = stage.insert new Q.Text
+          text: "I found the key to the security room!"
+          x: 80
+        victoryText00.enable()
+        victoryText01 = stage.insert new Q.Text
+          text: "Now I can find out what happened..."
+          x: 80
+        disableText(3, victoryText00)
+        enableText(3, victoryText01)
+        disableText(7.9, victoryText01)
+        stage.insert new Q.TimedEvent
+          triggerAt: 8
+          handler: ->
+            Q.clearStages()
+            Q.stageScene("credits")
+
     # Add in a tile layer, and make it the collision layer
     stage.collisionLayer new Q.LevelCollider()
     #new Q.TileLayer(
@@ -376,33 +498,53 @@ window.addEventListener "load", ->
 
     # Create the player and add them to the stage
     window.player = stage.insert(new Q.Player())
+    Q.state.player = player
     stage.insert new Q.ProximityAlert(player: player)
 
     # Give the stage a moveable viewport and tell it
     # to follow the player.
     stage.add("viewport").follow player, y: false, x: true
     
-    stage.insert new Q.MenuItem(
-      x: 60
-      y: 70
-      asset: "cellphone.png"
-      sticker: true
-    )
+    #stage.insert new Q.MenuItem(
+    #  x: 60
+    #  y: 70
+    #  asset: "cellphone.png"
+    #  sticker: true
+    #)
  
-    stage.insert new Q.MenuItem(
-      x: 200
-      y: 70
-      asset: "grampeador.png"
-      sticker: true
-    )
+    #stage.insert new Q.MenuItem(
+    #  x: 200
+    #  y: 70
+    #  asset: "grampeador.png"
+    #  sticker: true
+    #)
     # Add in a couple of enemies
-    stage.insert new Q.Enemy(
-      x: 900
+    #stage.insert new Q.Enemy
+    #  x: 1200
+    #  sheet: "enemy_1"
+    #  sprite: "enemy_1"
+    #  player: player
+    #  left_limit: 1000
+    #  right_limit: 1800
+    #  range: 200
+
+    stage.insert new Q.Enemy
+      x: 1200 #2000
+      sheet: "enemy_2"
+      sprite: "enemy_2"
       player: player
-      left_limit: 500
-      right_limit: 2000
+      left_limit: 1000 #1900
+      right_limit: 2000 #2500
       range: 200
-    )
+
+    stage.insert new Q.Enemy
+      x: 2700
+      sheet: "enemy_3"
+      sprite: "enemy_3"
+      player: player
+      left_limit: 2000 #2600
+      right_limit: 3200
+      range: 200
 
     spotLightOffset = 358
     spotLightDistance = 425
@@ -418,6 +560,15 @@ window.addEventListener "load", ->
     if ! Q.DEBUG
       Q.audio.play "bg.mp3", loop: true
 
+  Q.Sprite.extend "TimedEvent",
+    init: (options) ->
+      @_super(options)
+      @timer = 0
+    step: (dt) ->
+      @timer += dt
+      if @timer >= @p.triggerAt
+        @p.handler()
+
   Q.Sprite.extend "Intro",
     init: (options) ->
       @_super options,
@@ -426,35 +577,71 @@ window.addEventListener "load", ->
         cx: 0
         cy: 0
 
+      @add "tween"
+
       @timer          = 0
 
       @frameCount     = 0
       @framesNames    = ["escritorio_luz.png", "escritorio.png", "escritorio_apagado.png", "escritorio_assassinato.png"]
-      @frameEvents    = [1, 2, 3, 4, 5, 6, 7, 8, 9,13]
-      @framePerEvent  = [0, 1, 0, 1, 0, 1, 0, 1, 2, 3]
+      @frameEvents    = [   0,   1, 1.5, 2.5,   3, 3.5, 4.2, 4.7, 5.3,   6, 6.5,   7, 7.5, 8.5,   9, 9.5, 13]
+      @framePerEvent  = [   0,   1,   0,   2,   0,   1,   0,   2,   0,   1,   0,   2,   0,   1,   0,   2,  3]
       @frameChanged   = false
+
+      @eventFadeOut   = 20
+      @fadeOutTime    = 2
 
       @audioCount     = 0
       @audioEvents    = [0, 1, 13]
       @audioPerEvent  = ["cello.mp3", "train.mp3", "brokenString.mp3"]
       @audioChanged   = false
 
+      @p.alpha = 1
+
     step: (dt) ->
       @timer += dt
       if @frameCount < @frameEvents.length && @timer >= @frameEvents[@frameCount]
         @p.asset = @framesNames[@framePerEvent[@frameCount]]
-        console.log @p.asset
         @frameCount++
 
       if @audioCount < @audioEvents.length && @timer >= @audioEvents[@audioCount]
-        console.log "AUDIO: " + @audioPerEvent[@audioCount]
-        console.log "Timer: #{@timer}"
         Q.audio.play @audioPerEvent[@audioCount]
         @audioCount++
 
-  Q.scene "intro", (stage) ->
-    stage.insert new Q.Intro()
+      if @timer >= @eventFadeOut
+        @animate { alpha: 0 }, @fadeOutTime
 
+    draw: (ctx) ->
+      ctx.globalAlpha = @p.alpha
+      @_super(ctx)
+
+  Q.scene "intro", (stage) ->
+    stage.insert new Q.Sprite
+      asset: "escritorio_apagado.png"
+      x: 0
+      y: 0
+      cx: 0
+      cy: 0
+
+    stage.insert new Q.Intro()
+    stage.insert new Q.FadingSprite
+      asset: "logo.png"
+      x: Q.width / 2 - (286 / 2)
+      y: 70
+      timedEvents: [16, 18, 20, 22, 999]
+
+    stage.insert new Q.TimedEvent
+      triggerAt: 26
+      handler: ->
+        Q.stageScene("level1")
+
+  Q.scene "credits", (stage) ->
+    stage.insert new Q.Sprite
+      asset: "credits.png"
+      x: 0
+      y: 0
+      cx: 0
+      cy: 0
+    
   # To display a game over / game won popup box, 
   # create a endGame scene that takes in a `label` option
   # to control the displayed message.
@@ -492,9 +679,8 @@ window.addEventListener "load", ->
     IDCLIP: true
   }
   Q.debug = true
-  Q.debug = false
-  Q.DEBUG = false
-  assets = "escritorio.png, escritorio_luz.png, escritorio_apagado.png, escritorio_assassinato.png, exclamacao.png, exclamacao_red.png, enemy_1.png, player.png, corredor.png, grampeador.png, key.png, cellphone.png"
+  Q.DEBUG = Q.debug = false
+  assets = "credits.png, logo.png, escritorio.png, escritorio_luz.png, escritorio_apagado.png, escritorio_assassinato.png, exclamacao.png, exclamacao_red.png, enemy_1.png, enemy_2.png, enemy_3.png, player.png, corredor.png, grampeador.png, key.png, cellphone.png"
   if ! Q.debug
     assets += ", bg.mp3, cello.mp3, train.mp3, brokenString.mp3"
   # ## Asset Loading and Game Launch
@@ -502,7 +688,6 @@ window.addEventListener "load", ->
   # assets that are already loaded will be skipped
   # The callback will be triggered when everything is loaded
   Q.load assets, ->
-    
 
     Q.gravityY = 0
     Q.input.keyboardControls
@@ -516,6 +701,12 @@ window.addEventListener "load", ->
       sy: 0
 
     Q.sheet "enemy_1", "enemy_1.png",
+      tilew: 96
+      tileh: 122
+    Q.sheet "enemy_2", "enemy_2.png",
+      tilew: 100
+      tileh: 175
+    Q.sheet "enemy_3", "enemy_3.png",
       tilew: 70
       tileh: 128
 
@@ -532,6 +723,22 @@ window.addEventListener "load", ->
 
     Q.animations "enemy_1",
       right:
+        frames: [1..15]
+        rate: 1/3
+      left:
+        frames: [16..32]
+        rate: 1/3
+
+    Q.animations "enemy_2",
+      right:
+        frames: [1..6]
+        rate: 1/3
+      left:
+        frames: [7..12]
+        rate: 1/3
+
+    Q.animations "enemy_3",
+      right:
         frames: [0..2]
         rate: 1/3
       left:
@@ -539,7 +746,10 @@ window.addEventListener "load", ->
         rate: 1/3
     
     # Finally, call stageScene to run the game
-    Q.stageScene "intro"#"level1"
+    if Q.debug
+      Q.stageScene "level1"
+    else
+      Q.stageScene "intro"
   , progressCallback: (loaded, total) ->
       element = document.getElementById("loading_progress")
       element.style.width = Math.floor(loaded/total*100) + "%"
