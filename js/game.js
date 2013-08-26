@@ -2,15 +2,28 @@
 (function() {
 
   window.addEventListener("load", function() {
-    var Q;
-    Q = window.Q = Quintus().include("Sprites, Scenes, Input, 2D, Anim, Touch, UI").setup({
+    var Q, assets;
+    Q = window.Q = Quintus().include("Sprites, Scenes, Input, Audio, 2D, Anim, Touch, UI").setup({
       width: 768,
       height: 480
     }).controls().touch();
     Q.input.mouseControls();
     Q.input.keyboardControls();
+    Q.enableSound();
     Q.el.style.cursor = 'auto';
     Q.FloorHeight = 450;
+    Q.LevelWidth = 3840;
+    Q.Vector = {
+      subtract: function(v1, v2) {
+        return {
+          x: v1.x - v2.x,
+          y: v1.y - v2.y
+        };
+      },
+      distance: function(v1, v2) {
+        return Math.sqrt(Math.pow(v1.x - v2.x, 2) + Math.pow(v1.y - v2.y, 2));
+      }
+    };
     Q.pointInside = function(point, o) {
       var c, ox, oy;
       c = o.c || o.p;
@@ -29,8 +42,12 @@
         }, this.entity);
       },
       added: function() {
-        var mouseClick, mouseEnter, mouseLeave,
+        var mouseClick, mouseDown, mouseEnter, mouseLeave,
           _this = this;
+        mouseDown = function() {
+          return _this.entity.trigger("mouseDown");
+        };
+        Q.el.addEventListener.apply(Q.el, ["mousedown", mouseDown, false]);
         mouseClick = function() {
           if (_this.mouseInside()) {
             return _this.entity.trigger("click");
@@ -53,6 +70,17 @@
         return Q.el.addEventListener.apply(Q.el, ["mousemove", mouseLeave, false]);
       }
     });
+    Q.component("sticker", {
+      added: function() {
+        return this.entity.on("step", this, "step");
+      },
+      step: function(dt) {
+        if (this.entity._stickerActive) {
+          this.entity.p.x = Q.inputs["mouseX"];
+          return this.entity.p.y = Q.inputs["mouseY"];
+        }
+      }
+    });
     Q.Sprite.extend("Player", {
       click: function() {
         return console.log("click");
@@ -64,13 +92,20 @@
         this._super(p, {
           sheet: "player",
           sprite: "player",
-          x: 100,
+          x: 400,
           y: Q.FloorHeight
         });
         this.p.y -= this.p.h / 2;
-        this.speed = 200;
+        this.speed = 50;
+        if (Q.DEBUG) {
+          if (Q.DEBUG.SPEED) {
+            this.speed = 600;
+          }
+        }
         this.add("2d, animation");
-        Q.input.on("fire", this, "action");
+        this.play("right");
+        Q.input.on("left", this, this.turnLeft);
+        Q.input.on("right", this, this.turnRight);
         return this.on("hit.sprite", function(collision) {
           if (collision.obj.isA("Tower")) {
             Q.stageScene("endGame", 1, {
@@ -79,6 +114,12 @@
             return this.destroy();
           }
         });
+      },
+      turnLeft: function() {
+        return this.play("left");
+      },
+      turnRight: function() {
+        return this.play("right");
       },
       busted: function() {
         return console.log("busted!");
@@ -109,9 +150,20 @@
         }
         return _results;
       },
+      distanceFromEnemy: function(enemy) {
+        var distance;
+        distance = 0;
+        if (enemy.direction() === "left") {
+          distance = (enemy.p.x - enemy.range) - this.p.x;
+        } else {
+          distance = this.p.x - (enemy.p.x + enemy.range);
+        }
+        return Math.abs(distance);
+      },
       checkEnemies: function() {
-        var enemy, enemyX, turnedToPlayer, x, _i, _len, _ref, _results;
+        var enemy, enemyX, newDistance, turnedToPlayer, x, _i, _len, _ref, _results;
         x = this.p.x;
+        this.closestEnemy = Infinity;
         _ref = this.enemies;
         _results = [];
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
@@ -119,7 +171,11 @@
           enemyX = enemy.p.x;
           turnedToPlayer = (enemy.direction() === "left" && x < enemyX) || (enemy.direction() === "right" && x > enemyX);
           if (turnedToPlayer) {
-            if (this.visible && this.withinRange(enemy, enemy.range) || this.withinRange(enemy, enemy.flashlightRange)) {
+            newDistance = this.distanceFromEnemy(enemy);
+            if (newDistance < this.closestEnemy) {
+              this.closestEnemy = newDistance;
+            }
+            if (this.visible && this.withinRange(enemy, enemy.range)) {
               _results.push(this.busted());
             } else {
               _results.push(void 0);
@@ -140,23 +196,51 @@
         } else {
           this.p.vx = 0;
         }
+        if (this.p.vx === 0) {
+          this.play("standing");
+        }
         this.checkSpotLights();
         return this.checkEnemies();
       },
       draw: function(ctx) {
+        var difference, length, mousePoint;
         this._super(ctx);
-        ctx.fillStyle = "rgb(0,255,255)";
-        return ctx.fillRect(-this.p.cx, 0, this.p.w, 10);
-      },
-      action: function() {
-        return console.log("action!");
+        if (Q.DEBUG) {
+          ctx.fillStyle = "rgba(0,255,255, 0.5)";
+          ctx.fillRect(-this.p.cx, 0, this.p.w, 10);
+          mousePoint = {
+            x: Q.inputs["mouseX"],
+            y: Q.inputs["mouseY"]
+          };
+          length = Q.Vector.distance(this.p, mousePoint);
+          difference = Q.Vector.subtract(mousePoint, this.p);
+          ctx.fillStyle = "grey";
+          ctx.fillText("x: " + this.p.x + " y: " + this.p.y, 0, -200);
+          ctx.rotate(Math.atan2(difference.y, difference.x));
+          return ctx.fillRect(0, 0, length, 10);
+        }
       }
     });
-    Q.Sprite.extend("Tower", {
-      init: function(p) {
-        return this._super(p, {
-          sheet: "tower"
+    Q.Sprite.extend("ProximityAlert", {
+      init: function(options) {
+        this._super(options, {
+          asset: "exclamacao.png"
         });
+        this.maximumAlert = 100;
+        this.p.x = this.p.player.p.x;
+        return this.p.y = (this.p.player.p.y - this.p.player.p.h / 2) - this.p.h / 2;
+      },
+      step: function(dt) {
+        return this.p.x = this.p.player.p.x;
+      },
+      draw: function(ctx) {
+        if (this.p.player.visible) {
+          this.p.asset = "exclamacao.png";
+          this._super(ctx);
+          ctx.globalAlpha = this.maximumAlert / this.p.player.closestEnemy;
+          this.p.asset = "exclamacao_red.png";
+          return this._super(ctx);
+        }
       }
     });
     Q.Sprite.extend("SpotLight", {
@@ -179,7 +263,8 @@
           sprite: "enemy_1",
           sheet: "enemy_1",
           y: Q.FloorHeight,
-          vx: -100
+          vx: -100,
+          type: Q.SPRITE_NONE
         });
         this.p.y -= this.p.h / 2;
         this.left_limit = options["left_limit"];
@@ -189,7 +274,7 @@
         this.flashlightRange = options["flashlightRange"] || 100;
         options["player"].addEnemy(this);
         this.add("2d, animation");
-        return this.play("walking");
+        return this.play("right");
       },
       direction: function() {
         if (this.p.vx < 0) {
@@ -225,7 +310,60 @@
         if (this.direction() === "right" && new_x >= this.right_limit) {
           new_vx = -this.speed;
         }
-        return this.p.vx = new_vx;
+        this.p.vx = new_vx;
+        if (this.direction() === "left" && this.p.animation !== "left") {
+          return this.play("left");
+        } else if (this.direction() === "right" && this.p.animation !== "right") {
+          return this.play("right");
+        }
+      }
+    });
+    Q.Sprite.extend("MenuItem", {
+      init: function(options) {
+        this._super(options, {
+          type: Q.SPRITE_UI
+        });
+        this.offsetX = this.p.x;
+        this.offsetY = this.p.y;
+        if (options.sticker) {
+          this.add("extendedMouseEvents, sticker");
+        } else {
+          this.add("extendedMouseEvents");
+        }
+        this.on("click", "click");
+        this.on("mouseEnter", function() {
+          return Q.el.style.cursor = "pointer";
+        });
+        return this.on("mouseLeave", function() {
+          return Q.el.style.cursor = "auto";
+        });
+      },
+      step: function(dt) {
+        if (!this._stickerActive) {
+          this.p.x = Q.stage().viewport.x + this.offsetX;
+          return this.p.y = this.offsetY;
+        }
+      },
+      click: function() {
+        if (Q.SelectedItem != null) {
+          if (Q.SelectedItem === this) {
+            if (this.p.useHandler) {
+              this.p.useHandler();
+            }
+            if (this._stickerActive) {
+              this._stickerActive = false;
+            }
+            return Q.SelectedItem = null;
+          }
+        } else {
+          if (this.p.selectHandler) {
+            this.p.selectHandler();
+          }
+          if (this.p.sticker) {
+            this._stickerActive = true;
+          }
+          return Q.SelectedItem = this;
+        }
       }
     });
     Q.Sprite.extend("Door", {
@@ -238,19 +376,10 @@
         });
         this.on("phonecall", "ring");
         this.on("click", "teste");
-        this.add("extendedMouseEvents");
-        console.log('door');
-        return console.log(this.p);
+        return this.add("extendedMouseEvents");
       },
       teste: function() {
         return console.log("TESTE");
-      },
-      draw: function(ctx) {
-        this._super(ctx);
-        if (Q.DEBUG) {
-          ctx.fillStyle = "green";
-          return ctx.fillRect(-this.p.cx, -this.p.cy, this.p.w, this.p.h);
-        }
       }
     });
     Q.Sprite.extend("LevelCollider", {
@@ -260,7 +389,7 @@
           p: {
             w: 10,
             h: 768,
-            x: 0,
+            x: 360,
             y: 0
           }
         };
@@ -268,7 +397,7 @@
           p: {
             w: 10,
             h: 768,
-            x: 1280,
+            x: 3400,
             y: 0
           }
         };
@@ -278,44 +407,98 @@
       }
     });
     Q.scene("level1", function(stage) {
-      var i, spotLightDistance, spotLightOffset, _i, _results;
+      var i, nSpotLights, spotLightDistance, spotLightOffset, _i;
       window.bg = new Q.Sprite({
         asset: "corredor.png",
-        x: 800 / 2,
+        x: Q.LevelWidth / 2,
         y: 480 / 2,
         type: 0
       });
-      console.log(bg);
       stage.insert(bg);
       stage.collisionLayer(new Q.LevelCollider());
       stage.insert(new Q.Door({
         x: 207
       }));
       window.player = stage.insert(new Q.Player());
-      player.play("walking_right");
+      stage.insert(new Q.ProximityAlert({
+        player: player
+      }));
       stage.add("viewport").follow(player, {
         y: false,
         x: true
       });
+      stage.insert(new Q.MenuItem({
+        x: 60,
+        y: 70,
+        asset: "cellphone.png",
+        sticker: true
+      }));
+      stage.insert(new Q.MenuItem({
+        x: 200,
+        y: 70,
+        asset: "grampeador.png",
+        sticker: true
+      }));
       stage.insert(new Q.Enemy({
-        x: 700,
+        x: 900,
         player: player,
         left_limit: 500,
-        right_limit: 750,
+        right_limit: 2000,
         range: 200
       }));
-      spotLightOffset = 372;
-      spotLightDistance = 302;
-      _results = [];
-      for (i = _i = 0; _i <= 2; i = ++_i) {
-        _results.push(stage.insert(new Q.SpotLight({
+      spotLightOffset = 358;
+      spotLightDistance = 425;
+      nSpotLights = Math.floor((Q.LevelWidth - spotLightOffset) / spotLightDistance);
+      for (i = _i = 0; 0 <= nSpotLights ? _i <= nSpotLights : _i >= nSpotLights; i = 0 <= nSpotLights ? ++_i : --_i) {
+        stage.insert(new Q.SpotLight({
           x: spotLightOffset + spotLightDistance * i,
           y: 430,
           player: player,
-          range: 82
-        })));
+          range: 80
+        }));
       }
-      return _results;
+      if (!Q.DEBUG) {
+        return Q.audio.play("bg.mp3", {
+          loop: true
+        });
+      }
+    });
+    Q.Sprite.extend("Intro", {
+      init: function(options) {
+        this._super(options, {
+          x: 0,
+          y: 0,
+          cx: 0,
+          cy: 0
+        });
+        this.timer = 0;
+        this.frameCount = 0;
+        this.framesNames = ["escritorio_luz.png", "escritorio.png", "escritorio_apagado.png", "escritorio_assassinato.png"];
+        this.frameEvents = [1, 2, 3, 4, 5, 6, 7, 8, 9, 13];
+        this.framePerEvent = [0, 1, 0, 1, 0, 1, 0, 1, 2, 3];
+        this.frameChanged = false;
+        this.audioCount = 0;
+        this.audioEvents = [0, 1, 13];
+        this.audioPerEvent = ["cello.mp3", "train.mp3", "brokenString.mp3"];
+        return this.audioChanged = false;
+      },
+      step: function(dt) {
+        this.timer += dt;
+        if (this.frameCount < this.frameEvents.length && this.timer >= this.frameEvents[this.frameCount]) {
+          this.p.asset = this.framesNames[this.framePerEvent[this.frameCount]];
+          console.log(this.p.asset);
+          this.frameCount++;
+        }
+        if (this.audioCount < this.audioEvents.length && this.timer >= this.audioEvents[this.audioCount]) {
+          console.log("AUDIO: " + this.audioPerEvent[this.audioCount]);
+          console.log("Timer: " + this.timer);
+          Q.audio.play(this.audioPerEvent[this.audioCount]);
+          return this.audioCount++;
+        }
+      }
+    });
+    Q.scene("intro", function(stage) {
+      return stage.insert(new Q.Intro());
     });
     Q.scene("endGame", function(stage) {
       var button, container, label;
@@ -341,18 +524,27 @@
       });
       return container.fit(20);
     });
-    return Q.load("sprites.png, enemy_1.png, player_front.png, player.png, tiles.png, corredor.png, sprites.json", function() {
-      Q.DEBUG = true;
-      Q.debug = true;
+    Q.DEBUG = {
+      SPEED: true,
+      IDCLIP: true
+    };
+    Q.debug = true;
+    Q.debug = false;
+    Q.DEBUG = false;
+    assets = "escritorio.png, escritorio_luz.png, escritorio_apagado.png, escritorio_assassinato.png, exclamacao.png, exclamacao_red.png, enemy_1.png, player.png, corredor.png, grampeador.png, key.png, cellphone.png";
+    if (!Q.debug) {
+      assets += ", bg.mp3, cello.mp3, train.mp3, brokenString.mp3";
+    }
+    return Q.load(assets, function() {
       Q.gravityY = 0;
       Q.input.keyboardControls({
         65: "left",
         68: "right"
       });
       Q.sheet("player", "player.png", {
-        tilew: 95,
-        tileh: 112,
-        sx: 1,
+        tilew: 105,
+        tileh: 123,
+        sx: 0,
         sy: 0
       });
       Q.sheet("enemy_1", "enemy_1.png", {
@@ -360,22 +552,39 @@
         tileh: 128
       });
       Q.animations("player", {
-        walking_left: {
-          frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-          rate: 1 / 2
+        standing: {
+          frames: [28],
+          rate: 1
         },
-        walking_right: {
-          frames: [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
-          rate: 1 / 2
+        right: {
+          frames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+          rate: 1 / 5
+        },
+        left: {
+          frames: [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
+          rate: 1 / 5
         }
       });
       Q.animations("enemy_1", {
-        walking: {
+        right: {
           frames: [0, 1, 2],
+          rate: 1 / 3
+        },
+        left: {
+          frames: [3, 4, 5],
           rate: 1 / 3
         }
       });
-      return Q.stageScene("level1");
+      return Q.stageScene("intro");
+    }, {
+      progressCallback: function(loaded, total) {
+        var element;
+        element = document.getElementById("loading_progress");
+        element.style.width = Math.floor(loaded / total * 100) + "%";
+        if (loaded === total) {
+          return document.getElementById("loading").style.display = "none";
+        }
+      }
     });
   });
 

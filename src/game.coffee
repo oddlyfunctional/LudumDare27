@@ -20,13 +20,22 @@ window.addEventListener "load", ->
   # Maximize this game to whatever the size of the browser is
   
   # And turn on default input controls and touch input (for UI)
-  Q = window.Q = Quintus().include("Sprites, Scenes, Input, 2D, Anim, Touch, UI").setup(width: 768, height: 480).controls().touch()
+  Q = window.Q = Quintus().include("Sprites, Scenes, Input, Audio, 2D, Anim, Touch, UI").setup(width: 768, height: 480).controls().touch()
   Q.input.mouseControls()
   Q.input.keyboardControls()
+  Q.enableSound()
   Q.el.style.cursor = 'auto'
 
   Q.FloorHeight = 450
+  Q.LevelWidth = 3840
 
+
+  Q.Vector =
+    subtract: (v1, v2) ->
+      { x: v1.x - v2.x, y: v1.y - v2.y}
+    distance: (v1, v2) ->
+      Math.sqrt(Math.pow(v1.x - v2.x, 2) + Math.pow(v1.y - v2.y, 2))
+      
   Q.pointInside = (point, o) ->
     c = o.c || o.p
 
@@ -43,6 +52,8 @@ window.addEventListener "load", ->
       Q.pointInside({x: mouseX, y: mouseY}, @entity)
 
     added: ->
+      mouseDown = => @entity.trigger("mouseDown")
+      Q.el.addEventListener.apply Q.el, ["mousedown", mouseDown, false]
       mouseClick = => if @mouseInside() then @entity.trigger("click")
       Q.el.addEventListener.apply Q.el, ["mousedown", mouseClick, false]
       mouseEnter = =>
@@ -56,6 +67,15 @@ window.addEventListener "load", ->
           @entity.trigger("mouseLeave")
       Q.el.addEventListener.apply Q.el, ["mousemove", mouseLeave, false]
 
+  Q.component "sticker",
+    added: ->
+      @entity.on "step", this, "step"
+
+    step: (dt) ->
+      if @entity._stickerActive
+        @entity.p.x = Q.inputs["mouseX"]
+        @entity.p.y = Q.inputs["mouseY"]
+
   # ## Player Sprite
   # The very basic player sprite, this is just a normal sprite
   # using the player sprite sheet with default controls added to it.
@@ -65,24 +85,30 @@ window.addEventListener "load", ->
     hover: -> console.log("hover")
     # the init constructor is called on creation
     init: (p) ->
-      
+
       # You can call the parent's constructor with this._super(..)
       @_super p,
         sheet: "player" # Setting a sprite sheet sets sprite width and height
         sprite: "player"
-        x: 100 # You can also set additional properties that can
+        x: 400 # You can also set additional properties that can
         y: Q.FloorHeight# be overridden on object creation
 
       @p.y -= @p.h / 2
-      @speed = 200
-
+ 
+      @speed = 50
+      if Q.DEBUG
+        if Q.DEBUG.SPEED
+          @speed = 600
+     
       # Add in pre-made components to get up and running quickly
       # The `2d` component adds in default 2d collision detection
       # and kinetics (velocity, gravity)
       @add "2d, animation"
+      @play "right"
 
-      Q.input.on "fire", this, "action"
-      
+      Q.input.on "left", this, @turnLeft
+      Q.input.on "right", this, @turnRight
+
       # Write event handlers to respond hook into behaviors.
       # hit.sprite is called everytime the player collides with a sprite
       @on "hit.sprite", (collision) ->
@@ -91,6 +117,9 @@ window.addEventListener "load", ->
           Q.stageScene "endGame", 1,
             label: "You Won!"
           @destroy()
+
+    turnLeft: -> @play "left"
+    turnRight: -> @play "right"
 
     busted: -> console.log("busted!")
 
@@ -111,14 +140,25 @@ window.addEventListener "load", ->
         if @withinRange(spotLight, spotLight.range)
           @visible = true
 
+    distanceFromEnemy: (enemy) ->
+      distance = 0
+      if enemy.direction() == "left"
+        distance = (enemy.p.x - enemy.range) - @p.x
+      else
+        distance = @p.x - (enemy.p.x + enemy.range)
+      Math.abs(distance)
+
     checkEnemies: ->
       x = @p.x
+      @closestEnemy = Infinity
       for enemy in @enemies
         enemyX = enemy.p.x
         turnedToPlayer = (enemy.direction() == "left" && x < enemyX) ||
         (enemy.direction() == "right" && x > enemyX)
         if turnedToPlayer
-          if @visible && @withinRange(enemy, enemy.range) || @withinRange(enemy, enemy.flashlightRange)
+          newDistance = @distanceFromEnemy(enemy)
+          if newDistance < @closestEnemy then @closestEnemy = newDistance
+          if @visible && @withinRange(enemy, enemy.range)
             @busted()
 
     step: (dt) ->
@@ -131,23 +171,43 @@ window.addEventListener "load", ->
       else
         @p.vx = 0
 
+      if @p.vx == 0
+        @play "standing"
+
       @checkSpotLights()
       @checkEnemies()
 
     draw: (ctx)->
       @_super(ctx)
-      ctx.fillStyle = "rgb(0,255,255)"
-      ctx.fillRect(-@p.cx, 0, @p.w, 10)
-    action: ->
-      console.log("action!")
+      if Q.DEBUG
+        ctx.fillStyle = "rgba(0,255,255, 0.5)"
+        ctx.fillRect(-@p.cx, 0, @p.w, 10)
+        mousePoint = {x: Q.inputs["mouseX"], y: Q.inputs["mouseY"]}
+        length = Q.Vector.distance(@p, mousePoint)
+        difference = Q.Vector.subtract(mousePoint, @p)
+        ctx.fillStyle = "grey"
+        ctx.fillText("x: #{@p.x} y: #{@p.y}", 0, - 200)
+        ctx.rotate(Math.atan2(difference.y, difference.x))
+        ctx.fillRect(0, 0, length, 10)
 
-  
-  # ## Tower Sprite
-  # Sprites can be simple, the Tower sprite just sets a custom sprite sheet
-  Q.Sprite.extend "Tower",
-    init: (p) ->
-      @_super p,
-        sheet: "tower"
+  Q.Sprite.extend "ProximityAlert",
+    init: (options) ->
+      @_super options,
+        asset: "exclamacao.png"
+      @maximumAlert = 100
+      @p.x = @p.player.p.x
+      @p.y = (@p.player.p.y - @p.player.p.h/2) - @p.h/2
+
+    step: (dt) ->
+      @p.x = @p.player.p.x
+
+    draw: (ctx) ->
+      if @p.player.visible
+        @p.asset = "exclamacao.png"
+        @_super(ctx)
+        ctx.globalAlpha = @maximumAlert / @p.player.closestEnemy
+        @p.asset = "exclamacao_red.png"
+        @_super(ctx)
 
   Q.Sprite.extend "SpotLight",
     init: (options) ->
@@ -171,6 +231,7 @@ window.addEventListener "load", ->
         sheet: "enemy_1"
         y: Q.FloorHeight
         vx: -100
+        type: Q.SPRITE_NONE
       @p.y -= @p.h / 2
       @left_limit = options["left_limit"]
       @right_limit = options["right_limit"]
@@ -182,7 +243,7 @@ window.addEventListener "load", ->
       # Enemies use the Bounce AI to change direction 
       # whenver they run into something.
       @add "2d, animation"
-      @play "walking"
+      @play "right"
 
     direction: ->
       if @p.vx < 0
@@ -213,6 +274,45 @@ window.addEventListener "load", ->
         new_vx = -@speed
       @p.vx = new_vx
 
+      if @direction() == "left" && @p.animation != "left"
+        @play "left"
+      else if @direction() == "right" && @p.animation != "right"
+        @play "right"
+
+  Q.Sprite.extend "MenuItem",
+    init: (options) ->
+      @_super options,
+        type: Q.SPRITE_UI
+      @offsetX = @p.x
+      @offsetY = @p.y
+      if options.sticker
+        @add "extendedMouseEvents, sticker"
+      else
+        @add "extendedMouseEvents"
+      @on "click", "click"
+      @on "mouseEnter", -> Q.el.style.cursor = "pointer"
+      @on "mouseLeave", -> Q.el.style.cursor = "auto"
+
+    step: (dt) ->
+      if ! @_stickerActive
+        @p.x = Q.stage().viewport.x + @offsetX
+        @p.y = @offsetY
+
+    click: ->
+      if Q.SelectedItem?
+        if Q.SelectedItem == this
+          if @p.useHandler
+            @p.useHandler()
+          if @_stickerActive
+            @_stickerActive = false
+          Q.SelectedItem = null
+      else
+        if @p.selectHandler
+          @p.selectHandler()
+        if @p.sticker
+          @_stickerActive = true
+        Q.SelectedItem = this
+      
   Q.Sprite.extend "Door",
     init: (options) ->
       @_super options,
@@ -223,15 +323,8 @@ window.addEventListener "load", ->
       @on "phonecall", "ring"
       @on "click", "teste"
       @add "extendedMouseEvents"
-      console.log 'door'
-      console.log @p
 
     teste: -> console.log("TESTE")
-    draw: (ctx)->
-      @_super(ctx)
-      if Q.DEBUG
-        ctx.fillStyle = "green"
-        ctx.fillRect(-@p.cx, -@p.cy, @p.w, @p.h)
 
   Q.Sprite.extend "LevelCollider",
     init: (options) ->
@@ -240,14 +333,14 @@ window.addEventListener "load", ->
         p:
           w: 10
           h: 768
-          x: 0
+          x: 360
           y: 0
       }
       @rightWall =  {
         p:
           w: 10
           h: 768
-          x: 1280
+          x: 3400
           y: 0
       }
 
@@ -268,11 +361,10 @@ window.addEventListener "load", ->
     #)
     window.bg = new Q.Sprite {
       asset: "corredor.png"
-      x: 800 / 2
+      x: Q.LevelWidth / 2
       y: 480 / 2
       type: 0
     }
-    console.log bg
     stage.insert bg
     # Add in a tile layer, and make it the collision layer
     stage.collisionLayer new Q.LevelCollider()
@@ -281,34 +373,88 @@ window.addEventListener "load", ->
     #  sheet: "tiles"
     #)
     stage.insert new Q.Door(x: 207)
-    
+
     # Create the player and add them to the stage
     window.player = stage.insert(new Q.Player())
-    player.play("walking_right")
-    
+    stage.insert new Q.ProximityAlert(player: player)
+
     # Give the stage a moveable viewport and tell it
     # to follow the player.
     stage.add("viewport").follow player, y: false, x: true
     
+    stage.insert new Q.MenuItem(
+      x: 60
+      y: 70
+      asset: "cellphone.png"
+      sticker: true
+    )
+ 
+    stage.insert new Q.MenuItem(
+      x: 200
+      y: 70
+      asset: "grampeador.png"
+      sticker: true
+    )
     # Add in a couple of enemies
     stage.insert new Q.Enemy(
-      x: 700
+      x: 900
       player: player
       left_limit: 500
-      right_limit: 750
+      right_limit: 2000
       range: 200
     )
 
-    spotLightOffset = 372
-    spotLightDistance = 302
-    for i in [0..2]
+    spotLightOffset = 358
+    spotLightDistance = 425
+    nSpotLights = Math.floor((Q.LevelWidth - spotLightOffset) / spotLightDistance)
+    for i in [0..nSpotLights]
       stage.insert new Q.SpotLight(
         x: spotLightOffset + spotLightDistance * i
         y: 430
         player: player
-        range: 82
+        range: 80
       )
-  
+
+    if ! Q.DEBUG
+      Q.audio.play "bg.mp3", loop: true
+
+  Q.Sprite.extend "Intro",
+    init: (options) ->
+      @_super options,
+        x: 0
+        y: 0
+        cx: 0
+        cy: 0
+
+      @timer          = 0
+
+      @frameCount     = 0
+      @framesNames    = ["escritorio_luz.png", "escritorio.png", "escritorio_apagado.png", "escritorio_assassinato.png"]
+      @frameEvents    = [1, 2, 3, 4, 5, 6, 7, 8, 9,13]
+      @framePerEvent  = [0, 1, 0, 1, 0, 1, 0, 1, 2, 3]
+      @frameChanged   = false
+
+      @audioCount     = 0
+      @audioEvents    = [0, 1, 13]
+      @audioPerEvent  = ["cello.mp3", "train.mp3", "brokenString.mp3"]
+      @audioChanged   = false
+
+    step: (dt) ->
+      @timer += dt
+      if @frameCount < @frameEvents.length && @timer >= @frameEvents[@frameCount]
+        @p.asset = @framesNames[@framePerEvent[@frameCount]]
+        console.log @p.asset
+        @frameCount++
+
+      if @audioCount < @audioEvents.length && @timer >= @audioEvents[@audioCount]
+        console.log "AUDIO: " + @audioPerEvent[@audioCount]
+        console.log "Timer: #{@timer}"
+        Q.audio.play @audioPerEvent[@audioCount]
+        @audioCount++
+
+  Q.scene "intro", (stage) ->
+    stage.insert new Q.Intro()
+
   # To display a game over / game won popup box, 
   # create a endGame scene that takes in a `label` option
   # to control the displayed message.
@@ -341,30 +487,32 @@ window.addEventListener "load", ->
     # (with a padding of 20 pixels)
     container.fit 20
 
-  
+   Q.DEBUG = {
+    SPEED: true
+    IDCLIP: true
+  }
+  Q.debug = true
+  Q.debug = false
+  Q.DEBUG = false
+  assets = "escritorio.png, escritorio_luz.png, escritorio_apagado.png, escritorio_assassinato.png, exclamacao.png, exclamacao_red.png, enemy_1.png, player.png, corredor.png, grampeador.png, key.png, cellphone.png"
+  if ! Q.debug
+    assets += ", bg.mp3, cello.mp3, train.mp3, brokenString.mp3"
   # ## Asset Loading and Game Launch
   # Q.load can be called at any time to load additional assets
   # assets that are already loaded will be skipped
   # The callback will be triggered when everything is loaded
-  Q.load "sprites.png, enemy_1.png, player_front.png, player.png, tiles.png, corredor.png, sprites.json", ->
+  Q.load assets, ->
     
-    Q.DEBUG = true
-    Q.debug = true
+
     Q.gravityY = 0
     Q.input.keyboardControls
       65: "left"  # A
       68: "right" # D
 
-    #Q.sheet "player_front", "player_front.png",
-    #  tilew: 35
-    #  tileh: 118
-    #  sx: 0
-    #  sy: 0
-
     Q.sheet "player", "player.png",
-      tilew: 95
-      tileh: 112
-      sx: 1
+      tilew: 105
+      tileh: 123
+      sx: 0
       sy: 0
 
     Q.sheet "enemy_1", "enemy_1.png",
@@ -372,20 +520,31 @@ window.addEventListener "load", ->
       tileh: 128
 
     Q.animations "player",
-      walking_left:
+      standing:
+        frames: [28]
+        rate: 1
+      right:
         frames: [0..13]
-        rate: 1/2
-      walking_right:
-        frames: [14..26]
-        rate: 1/2
+        rate: 1/5
+      left:
+        frames: [14..27]
+        rate: 1/5
 
     Q.animations "enemy_1",
-      walking:
+      right:
         frames: [0..2]
+        rate: 1/3
+      left:
+        frames: [3..5]
         rate: 1/3
     
     # Finally, call stageScene to run the game
-    Q.stageScene "level1"
+    Q.stageScene "intro"#"level1"
+  , progressCallback: (loaded, total) ->
+      element = document.getElementById("loading_progress")
+      element.style.width = Math.floor(loaded/total*100) + "%"
+      if loaded == total
+        document.getElementById("loading").style.display = "none"
 
 # ## Possible Experimentations:
 # 
